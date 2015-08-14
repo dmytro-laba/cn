@@ -48,3 +48,8 @@ class UserAESCipher:
     def decrypt(self, enc):
         bytes(enc, 'UTF-8')
         return self.cipher.decrypt(enc).decode()
+
+def get_img_to_base64(path):
+    with open(path, "rb") as image_file:
+        encoded_string = base64.b64encode(image_file.read())
+    return encoded_string.decode("utf-8")
