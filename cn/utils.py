@@ -1,8 +1,11 @@
 import base64
+from contextlib import suppress
 from Crypto.Cipher import AES
 from Crypto import Random
 from Crypto.Hash import MD5
 from Crypto.PublicKey import RSA
+import tornado
+from datetime import datetime
 
 
 BS = 16
@@ -49,7 +52,44 @@ class UserAESCipher:
         bytes(enc, 'UTF-8')
         return self.cipher.decrypt(enc).decode()
 
+
 def get_img_to_base64(path):
     with open(path, "rb") as image_file:
         encoded_string = base64.b64encode(image_file.read())
     return encoded_string.decode("utf-8")
+
+
+def auth_signature(secret, salt):
+    from hashlib import sha1
+    import hmac
+    import base64
+
+    if type(secret) == str:
+        secret = bytes(secret, 'UTF-8')
+
+    if type(salt) == str:
+        salt = bytes(salt, 'UTF-8')
+
+    hashed = hmac.new(secret, salt, sha1)
+
+    return base64.b64encode(hashed.digest()).decode()
+
+
+def auth_headers_parse(headers):
+    salt = headers['Salt']
+    auth = headers['Authorization']
+    public, signature = auth.split(': ')
+
+    return dict(public=public, signature=signature, salt=salt)
+
+
+def auth_headers_request(public, secret, headers=None):
+    headers = headers or {}
+
+    salt = str(datetime.timestamp(datetime.now()))
+    signature = auth_signature(secret, salt)
+
+    headers['Salt'] = salt
+    headers['Authorization'] = '%s: %s' % (public, signature)
+
+    return headers
