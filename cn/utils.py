@@ -5,8 +5,10 @@ from Crypto import Random
 from Crypto.Hash import MD5
 from Crypto.PublicKey import RSA
 import tornado
-from datetime import datetime
-
+from datetime import datetime, timedelta
+import chu
+import sys
+from cn.models import AsyncRabbitConsumer
 
 BS = 16
 pad = lambda s: s + (BS - len(s) % BS) * chr(BS - len(s) % BS)
@@ -93,3 +95,20 @@ def auth_headers_request(public, secret, headers=None):
     headers['Authorization'] = '%s: %s' % (public, signature)
 
     return headers
+
+
+@tornado.gen.coroutine
+def rpc_fetch(rpc_client, queue, timeout=None, **params):
+    rpc_request = chu.rpc.RPCRequest(exchange='',
+                                     routing_key=queue,
+                                     params=params)
+
+    future = yield tornado.gen.Task(rpc_client.rpc, rpc_request)
+    if timeout is None:
+        timeout = sys.maxsize
+
+    response = yield tornado.gen.Task(future.get, timeout=timedelta(seconds=timeout))
+
+    return response
+
+

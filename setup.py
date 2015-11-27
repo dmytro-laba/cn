@@ -9,5 +9,7 @@ setup(
     install_requires=[
         'tornado==4.2',
         'pycrypto==2.6.1',
+        'chu==0.2.0',
+        'pika==0.10.0'
     ],
 )
