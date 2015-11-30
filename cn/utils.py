@@ -9,6 +9,8 @@ from datetime import datetime, timedelta
 import chu
 import sys
 from cn.models import AsyncRabbitConsumer
+import boto
+from boto.s3.key import Key
 
 BS = 16
 pad = lambda s: s + (BS - len(s) % BS) * chr(BS - len(s) % BS)
@@ -35,17 +37,74 @@ class AESCipher:
 
 class UserAESCipher:
     # pycrypto helper
-    def __init__(self, user_id, keys_dir):
+    def __init__(self, user_id, keys_dir, aws_access_key=None, aws_secret_key=None, aws_bucket=None):
         self.keys_dir = keys_dir
         self.user_id = user_id
+
+        self.aws_bucket = aws_bucket
+        self.aws_access_key = aws_access_key
+        self.aws_secret_key = aws_secret_key
+
+        # Enable amazon
+        self.is_amazon = False
+        self.boto = None
+        self.bucket = None
+        if self.aws_access_key and self.aws_secret_key and self.aws_bucket:
+            # TODO: add check amazon
+            self.is_amazon = True
+            self.boto = boto.connect_s3(self.aws_access_key, self.aws_secret_key)
+            self.bucket = self.boto.get_bucket(self.aws_bucket)
+
         self.key_hash = self.get_key_hash()
-        self.cipher = AESCipher(self.key_hash)
+        self.cipher = AESCipher(self.keys_dir)
 
     def get_key_hash(self):
+        if self.is_amazon:
+            return self.get_aws_key_hash()
+
+        return self.get_local_key_hash()
+
+
+    def get_local_key_hash(self):
         f = open('%s/user_%s_key.pem' % (self.keys_dir, self.user_id), 'rb')
         key = RSA.importKey(f.read())
         key_hash = MD5.new(key.exportKey('PEM')).hexdigest()
         return key_hash
+
+    def get_aws_key_hash(self):
+        s3_key = self.bucket.get_key('/{keys_dir}/user_{user_id}_key.pem'.format(keys_dir=self.keys_dir, user_id=self.user_id))
+
+        if not s3_key:
+            return None
+
+        key = RSA.importKey(s3_key.get_contents_as_string())
+        key_hash = MD5.new(key.exportKey('PEM')).hexdigest()
+
+        return key_hash
+
+    def create_key(self):
+        if self.is_amazon:
+            return self.create_aws_key()
+
+        return self.create_local_key()
+
+    def create_local_key(self):
+        key = RSA.generate(2048)
+        f = open('%s/user_%s_key.pem' % (self.keys_dir, self.user_id), 'wb')
+        f.write(key.exportKey('PEM'))
+        f.close()
+
+        return key
+
+    def create_aws_key(self):
+        key = RSA.generate(2048)
+
+        k = Key(self.bucket)
+        k.key = '/{keys_dir}/user_{user_id}_key.pem'.format(keys_dir=self.keys_dir, user_id=self.user_id)
+
+        k.set_contents_from_string(key.exportKey('PEM'))
+
+        return key
 
     def encrypt(self, raw):
         return self.cipher.encrypt(raw).decode()
