@@ -56,7 +56,7 @@ class UserAESCipher:
             self.bucket = self.boto.get_bucket(self.aws_bucket)
 
         self.key_hash = self.get_key_hash()
-        self.cipher = AESCipher(self.keys_dir)
+        self.cipher = AESCipher(self.key_hash)
 
     def get_key_hash(self):
         if self.is_amazon:

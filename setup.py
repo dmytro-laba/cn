@@ -3,7 +3,7 @@ import cn
 
 setup(
     name='cn',
-    version="0.2.2",
+    version="0.2.3",
     packages=find_packages(),
     include_package_data=True,
     install_requires=[
