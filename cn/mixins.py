@@ -7,5 +7,5 @@ class AsyncClientMixin(object):
     def get_async_http_client(self):
         return AsyncHTTPClient()
 
-    def get_user_cipher(self, user_id, keys_dir):
-        return UserAESCipher(user_id, keys_dir)
+    def get_user_cipher(self, user_id, keys_dir, aws_access_key=None, aws_secret_key=None, aws_bucket=None):
+        return UserAESCipher(user_id, keys_dir, aws_access_key, aws_secret_key, aws_bucket)
