@@ -15,6 +15,18 @@ import sys
 from cn.models import AsyncRabbitConsumer
 import boto
 from boto.s3.key import Key
+from tornado.gen import coroutine, Return
+from base64 import b64encode, b64decode
+from tornado.httpclient import AsyncHTTPClient, HTTPError, HTTPClient
+import hashlib, hmac, mimetypes, os, time
+from calendar import timegm
+from datetime import datetime
+from email.utils import formatdate
+
+try:
+    import urllib.request as urllib2
+except ImportError:
+    import urllib2
 
 BS = 16
 pad = lambda s: s + (BS - len(s) % BS) * chr(BS - len(s) % BS)
@@ -75,7 +87,8 @@ class UserAESCipher:
         return key_hash
 
     def get_aws_key_hash(self):
-        s3_key = self.bucket.get_key('/{keys_dir}/user_{user_id}_key.pem'.format(keys_dir=self.keys_dir, user_id=self.user_id))
+        s3_key = self.bucket.get_key(
+            '/{keys_dir}/user_{user_id}_key.pem'.format(keys_dir=self.keys_dir, user_id=self.user_id))
 
         if not s3_key:
             return None
@@ -296,5 +309,3 @@ def rpc_fetch(rpc_client, queue, timeout=None, **params):
     response = yield tornado.gen.Task(future.get, timeout=timedelta(seconds=timeout))
 
     return response
-
-
