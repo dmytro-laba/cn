@@ -1,5 +1,5 @@
 from tornado.httpclient import AsyncHTTPClient
-from cn.utils import UserAESCipher, AsyncUserAESCipher
+from cn.utils import UserAESCipher
 from tornado import gen
 
 class AsyncClientMixin(object):
