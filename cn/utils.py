@@ -131,8 +131,8 @@ class UserAESCipher:
 
 class AsyncUserAESCipher(object):
     AWS_S3_BUCKET_URL = "http://%(bucket)s.s3.amazonaws.com/%(path)s"
-    AWS_S3_CONNECT_TIMEOUT = 20
-    AWS_S3_REQUEST_TIMEOUT = 90
+    AWS_S3_CONNECT_TIMEOUT = 100
+    AWS_S3_REQUEST_TIMEOUT = 100
 
     service_base_url = 's3.amazonaws.com'
     special_params = [
@@ -243,7 +243,8 @@ class AsyncUserAESCipher(object):
                 return data
 
         except tornado.httpclient.HTTPError as error:
-                pass
+            print(str(error))
+            pass
 
 
 def get_img_to_base64(path):
