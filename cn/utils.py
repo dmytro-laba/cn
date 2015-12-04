@@ -159,7 +159,7 @@ class AsyncUserAESCipher(object):
         self._client = AsyncHTTPClient()
 
     @tornado.gen.coroutine
-    def create_cipher(self):
+    def init_cipher(self):
         """
         Create cipher from key hash
         :return: None
