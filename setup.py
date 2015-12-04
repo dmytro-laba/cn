@@ -14,5 +14,6 @@ setup(
         'boto==2.38.0',
         'logentries',
         'tornado_aws',
+        'requests-aws'
     ],
 )

@@ -16,12 +16,11 @@ from cn.models import AsyncRabbitConsumer
 import boto
 from boto.s3.key import Key
 from tornado.gen import coroutine, Return
-from base64 import b64encode, b64decode
 from tornado.httpclient import AsyncHTTPClient, HTTPError, HTTPClient
-import hashlib, hmac, mimetypes, os, time
-from calendar import timegm
 from datetime import datetime
-from email.utils import formatdate
+
+
+from awsauth import S3Auth
 
 try:
     import urllib.request as urllib2
@@ -130,14 +129,22 @@ class UserAESCipher:
         return self.cipher.decrypt(enc).decode()
 
 
-
-
 class AsyncUserAESCipher(object):
     AWS_S3_BUCKET_URL = "http://%(bucket)s.s3.amazonaws.com/%(path)s"
-    AWS_S3_CONNECT_TIMEOUT = 10
+    AWS_S3_CONNECT_TIMEOUT = 20
     AWS_S3_REQUEST_TIMEOUT = 90
 
-    def __init__(self, user_id, keys_dir, aws_access_key=None, aws_secret_key=None, aws_bucket=None):
+    service_base_url = 's3.amazonaws.com'
+    special_params = [
+        'acl', 'location', 'logging', 'partNumber', 'policy', 'requestPayment',
+        'torrent', 'versioning', 'versionId', 'versions', 'website', 'uploads',
+        'uploadId', 'response-content-type', 'response-content-language',
+        'response-expires', 'response-cache-control', 'delete', 'lifecycle',
+        'response-content-disposition', 'response-content-encoding', 'tagging',
+        'notification', 'cors'
+    ]
+
+    def __init__(self, user_id, keys_dir, aws_access_key, aws_secret_key, aws_bucket):
         self.keys_dir = keys_dir
         self.user_id = user_id
 
@@ -145,48 +152,54 @@ class AsyncUserAESCipher(object):
         self.aws_access_key = aws_access_key
         self.aws_secret_key = aws_secret_key
 
+        self.auth = S3Auth(self.aws_access_key, self.aws_secret_key)
         # Enable amazon
         self.is_amazon = False
-        if self.aws_access_key and self.aws_secret_key and self.aws_bucket:
-            self.is_amazon = True
-            self._client = AsyncHTTPClient()
+        self.is_amazon = True
+        self._client = AsyncHTTPClient()
 
     @tornado.gen.coroutine
     def create_cipher(self):
-        self.key_hash = yield self.get_key_hash()
-        self.cipher = AESCipher(self.key_hash)
+        """
+        Create cipher from key hash
+        :return: None
+        """
+        key_hash = yield self.get_key_hash()
+        self.cipher = AESCipher(key_hash)
+
+    def _build_aws_s3_bucket_url(self):
+        path = '{keys_dir}/user_{user_id}_key.pem'.format(keys_dir=self.keys_dir, user_id=self.user_id)
+        url = self.AWS_S3_BUCKET_URL % {
+            "bucket": self.aws_bucket,
+            "path": path,
+        }
+        return url
 
     @tornado.gen.coroutine
     def get_key_hash(self):
-        method = "GET"
+        """
+        Get key hash from amazon
+        :return:
+        """
         headers = {}
-        path = '{keys_dir}/user_{user_id}_key.pem'.format(keys_dir=self.keys_dir, user_id=self.user_id)
-        self._signHeaders(method, path, headers)
+        url = self._build_aws_s3_bucket_url()
+        data = yield self.send_request(url, headers=headers)
+        key = RSA.importKey(data)
+        key_hash = MD5.new(key.exportKey('PEM')).hexdigest()
+        return key_hash
 
-        try:
-            response = yield self._client.fetch(
-                self.AWS_S3_BUCKET_URL % {
-                    "bucket": self.aws_bucket,
-                    "path": path,
-                },
-                method=method,
-                body=None,
-                connect_timeout=self.AWS_S3_CONNECT_TIMEOUT,
-                request_timeout=self.AWS_S3_REQUEST_TIMEOUT,
-                headers=headers
-            )
-
-            if response.code == 200:
-                # Get the metadata from the headers
-                data = response.body
-                return data
-
-        except tornado.httpclient.HTTPError as error:
-
-            if error.code == 404:
-                pass
-
-        return None
+    @tornado.gen.coroutine
+    def create_aws_key(self):
+        """
+        Create key to amazon
+        :return:
+        """
+        headers = {}
+        url = self._build_aws_s3_bucket_url()
+        key = RSA.generate(2048)
+        body = key.exportKey('PEM')
+        data = yield self.send_request(url, method='PUT', body=body, headers=headers)
+        return data
 
     def encrypt(self, raw):
         return self.cipher.encrypt(raw).decode()
@@ -195,63 +208,42 @@ class AsyncUserAESCipher(object):
         bytes(enc, 'UTF-8')
         return self.cipher.decrypt(enc).decode()
 
-    def _getRFC822DateTime(self, t=None):
+    def _sign_headers(self, request):
         """
-        Generate date in RFC822 format
+        Added to request auth header
+        :param request: request
+        :return:
         """
+        self.auth(request)
 
-        if t is None:
-            t = datetime.utcnow()
-
-        return formatdate(timegm(t.timetuple()), usegmt=True)
-
-    def _signHeaders(self, method, path, headers):
-        date = self._getRFC822DateTime()
-
-        # amz_headers_set = ["%s:%s" % (key.lower(), value)
-        #                    for key, value in headers.iteritems()
-        #                    if key.lower().startswith('x-amz')]
-        # amz_headers_set.sort()
-        # amz_headers_string = "\n".join(amz_headers_set).rstrip()
-
-        signature_strings = \
-            [
-                "{method}",
-                "{content_md5}",
-                "{content_type}",
-                "{date}"
-            ]
-        # if len(amz_headers_string) > 0:
-        #     signature_strings.append(amz_headers_string)
-        signature_strings.append("/{bucket}/{path}")
-
-        signature = "\n".join(signature_strings).format(
+    @tornado.gen.coroutine
+    def send_request(self, url, method='GET', body=None, headers=None):
+        """
+        Send request to amazon
+        :param url: url
+        :param method: method
+        :param body: body
+        :param headers: headers
+        :return: data
+        """
+        request = tornado.httpclient.HTTPRequest(
+            url,
             method=method,
-            content_type=headers.get("Content-Type") or "",
-            content_md5=headers.get("Content-MD5") or "",
-            date=date,
-            bucket=self.aws_bucket,
-            path=path
-        )
+            body=body,
+            headers=headers,
+            connect_timeout=self.AWS_S3_CONNECT_TIMEOUT,
+            request_timeout=self.AWS_S3_REQUEST_TIMEOUT)
+
+        self._sign_headers(request)
 
         try:
+            response = yield self._client.fetch(request)
+            if response.code == 200:
+                data = response.body.decode()
+                return data
 
-            auth_signature = base64.b64encode(hmac.new(
-                self.aws_secret_key.encode("utf-8"),
-                signature.encode("utf-8"),
-                hashlib.sha1
-            ).digest()).strip()
-
-        except UnicodeDecodeError as e:
-            pass
-
-        headers.update({
-            "Date": date,
-            "Authorization": "AWS %(access_key)s:%(auth_signature)s" % {
-                "access_key": self.aws_access_key,
-                "auth_signature": auth_signature,
-            }
-        })
+        except tornado.httpclient.HTTPError as error:
+                pass
 
 
 def get_img_to_base64(path):
