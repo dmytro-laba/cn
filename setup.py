@@ -3,7 +3,7 @@ import cn
 
 setup(
     name='cn',
-    version="0.2.6",
+    version="0.2.7",
     packages=find_packages(),
     include_package_data=True,
     install_requires=[
@@ -13,7 +13,6 @@ setup(
         'pika==0.10.0',
         'boto==2.38.0',
         'logentries',
-        'tornado_aws',
         'requests-aws'
     ],
 )
