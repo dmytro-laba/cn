@@ -131,8 +131,8 @@ class UserAESCipher:
 
 class AsyncUserAESCipher(object):
     AWS_S3_BUCKET_URL = "http://%(bucket)s.s3.amazonaws.com/%(path)s"
-    AWS_S3_CONNECT_TIMEOUT = 100
-    AWS_S3_REQUEST_TIMEOUT = 100
+    AWS_S3_CONNECT_TIMEOUT = float('inf')
+    AWS_S3_REQUEST_TIMEOUT = float('inf')
 
     service_base_url = 's3.amazonaws.com'
     special_params = [
