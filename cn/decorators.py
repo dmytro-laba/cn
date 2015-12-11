@@ -15,7 +15,9 @@ def authentication(url_for_check):
 
             try:
                 url = tornado.httputil.url_concat(url_for_check, auth_params)
-                response = yield http_client.fetch(url)
+                response = yield http_client.fetch(url,
+                                                   connect_timeout=float('inf'),
+                                                   request_timeout=float('inf'))
                 return func(self, **kwargs)
             except tornado.httpclient.HTTPError as e:
                 raise tornado.web.HTTPError(e.code, 'Token not valid')
