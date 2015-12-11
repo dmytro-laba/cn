@@ -20,7 +20,5 @@ def authentication(url_for_check):
                 return func(self, **kwargs)
             except tornado.httpclient.HTTPError as e:
                 raise tornado.web.HTTPError(e.code, 'Token not valid')
-            return func(self, **kwargs)
-
         return wrapper
     return decorator
