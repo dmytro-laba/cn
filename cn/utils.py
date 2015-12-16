@@ -272,7 +272,10 @@ def auth_signature(secret, salt):
 def auth_headers_parse(headers):
     salt = headers['Salt']
     auth = headers['Authorization']
-    public, signature = auth.split(': ')
+    public, signature = auth.split(':')
+
+    public = public.strip()
+    signature = signature.strip()
 
     return dict(public=public, signature=signature, salt=salt)
 
