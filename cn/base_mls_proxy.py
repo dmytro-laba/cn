@@ -61,6 +61,7 @@ class BaseMlsProxy(AsyncClientMixin, BaseProxy):
         self.HUB_REGISTER_PROXY_URL = self.HUB_URL + os.environ.get('HUB_REGISTER_PROXY_URL', 'register/proxy')
         self.HUB_LOGS_URL = self.HUB_URL + os.environ.get('HUB_LOGS_URL', 'logs')
 
+        self.USE_CIPHER = True # Override this as False only for local testing.
         self.AWS_USERS_KEYS_DIR = os.environ.get('AWS_USERS_KEYS_DIR', 'environments/staging/secrets')
         self.AWS_BUCKET_NAME = os.environ.get('AWS_BUCKET_NAME', 'apination')
         self.AWS_ACCESS_KEY_ID = os.environ.get('AWS_ACCESS_KEY_ID', 'AKIAJUT3EQCT3OXEXGQQ')
@@ -122,7 +123,8 @@ class BaseMlsProxy(AsyncClientMixin, BaseProxy):
                                             self.AWS_ACCESS_KEY_ID,
                                             self.AWS_SECRET_ACCESS_KEY,
                                             self.AWS_BUCKET_NAME)
-            yield cipher.init_cipher()
+            if self.USE_CIPHER:
+                yield cipher.init_cipher()
             data = yield tornado.gen.Task(self.get_listings, trigger, cipher)
         except httpclient.HTTPError as e:
             log.error("""HTTPError error (request to take entities from %s):
@@ -174,8 +176,12 @@ class BaseMlsProxy(AsyncClientMixin, BaseProxy):
         return self.RETS_DEFAULT_SEARCH_QUERY % (start_date.isoformat())
 
     def get_listings(self, trigger, cipher, callback):
-        username = cipher.decrypt(trigger['user'])
-        password = cipher.decrypt(trigger['password'])
+        if self.USE_CIPHER:
+            username = cipher.decrypt(trigger['user'])
+            password = cipher.decrypt(trigger['password'])
+        else:
+            username = trigger['user']
+            password = trigger['password']
         search_query = self.get_search_query(trigger, cipher)
 
         session = self.get_rets_session()
