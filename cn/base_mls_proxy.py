@@ -4,6 +4,7 @@ import librets
 import tornado
 import tornado.ioloop
 import tornado.web
+from pymongo import MongoClient
 from tornado import httpclient
 from tornado.escape import json_decode, json_encode
 from tornado.httpclient import HTTPResponse, HTTPRequest
@@ -60,6 +61,12 @@ class BaseMlsProxy(AsyncClientMixin, BaseProxy):
         self.HUB_URL = os.environ.get('HUB_URL', 'https://hub-stg.apination.com/')
         self.HUB_REGISTER_PROXY_URL = self.HUB_URL + os.environ.get('HUB_REGISTER_PROXY_URL', 'register/proxy')
         self.HUB_LOGS_URL = self.HUB_URL + os.environ.get('HUB_LOGS_URL', 'logs')
+
+        # Override this value for storing and checking listing ids that were processed for each trigger.
+        self.MONGO_STORE_LISTING_IDS = False
+        self.MONGODB_URL = os.environ.get('MONGODB_URL', 'mongodb://localhost:27017')
+        self.MONGODB_DB_NAME = os.environ.get('MONGODB_DB_NAME', 'apination_hub')
+        self.MONGODB_COLLECTION_NAME = os.environ.get('MONGODB_COLLECTION_NAME', 'mls_test_collection')
 
         self.USE_CIPHER_AND_LOGS = True # Override this as False only for local testing.
         self.AWS_USERS_KEYS_DIR = os.environ.get('AWS_USERS_KEYS_DIR', 'environments/staging/secrets')
@@ -175,19 +182,56 @@ class BaseMlsProxy(AsyncClientMixin, BaseProxy):
         start_date = self.get_start_date_for_query(trigger)
         return self.RETS_DEFAULT_SEARCH_QUERY % (start_date.isoformat())
 
-    def get_listings(self, trigger, cipher, callback):
+    def get_rets_credentials(self, trigger, cipher):
         if self.USE_CIPHER_AND_LOGS:
             username = cipher.decrypt(trigger['user'])
             password = cipher.decrypt(trigger['password'])
         else:
             username = trigger['user']
             password = trigger['password']
+        return {
+            'username': username,
+            'password': password
+        }
+
+    def get_processed_listing_ids(self, trigger_id):
+        processed_listing_ids = []
+        if (self.MONGO_STORE_LISTING_IDS):
+            client = MongoClient(self.MONGODB_URL)
+            db = client[self.MONGODB_DB_NAME]
+            document = db[self.MONGODB_COLLECTION_NAME].find_one({'trigger_id': trigger_id})
+            if (document != None):
+                processed_listing_ids = document.get('processed_listing_ids', [])
+            client.close()
+        return processed_listing_ids
+
+    def replace_processed_listing_ids(self, trigger_id, new_processed_listing_ids):
+        if (self.MONGO_STORE_LISTING_IDS):
+            client = MongoClient(self.MONGODB_URL)
+            db = client[self.MONGODB_DB_NAME]
+            document = db[self.MONGODB_COLLECTION_NAME].find_one({'trigger_id': trigger_id})
+            if (document != None):
+                db[self.MONGODB_COLLECTION_NAME].update_one(
+                    {'trigger_id': trigger_id},
+                    {
+                        '$set': {'processed_listing_ids':new_processed_listing_ids}
+                    })
+            else:
+                db[self.MONGODB_COLLECTION_NAME].insert_one({
+                    'trigger_id': trigger_id,
+                    'processed_listing_ids': new_processed_listing_ids
+                })
+            client.close()
+
+    def get_listings(self, trigger, cipher, callback):
+        rets_credentials = self.get_rets_credentials(trigger, cipher)
         search_query = self.get_search_query(trigger, cipher)
 
         session = self.get_rets_session()
-        if (not session.Login(username, password)):
+        if (not session.Login(rets_credentials['username'], rets_credentials['password'])):
             log.error('Invalid Login to %s' % self.MLS_SHORT_NAME)
             return callback([])
+        processed_listing_ids = self.get_processed_listing_ids(trigger['trigger_id'])
         data = []
         rets_classes = self.RETS_SELECT_QUERIES.keys()
         for rets_class in rets_classes :
@@ -202,16 +246,18 @@ class BaseMlsProxy(AsyncClientMixin, BaseProxy):
                 listing_data = {}
                 if rets_class in self.RETS_CLASSES_DEFAULT_VALUES:
                     listing_data = self.RETS_CLASSES_DEFAULT_VALUES.get(rets_class).copy()
-                if self.is_skip_rets_result(results, trigger, cipher):
+                if self.is_skip_rets_result(results, trigger, cipher, processed_listing_ids):
                     continue
                 for column in columns:
                     listing_data.update({column:results.GetString(column)})
+                processed_listing_ids.append(listing_data[self.RETS_LISTING_ID_FIELD])
                 data.append(listing_data)
         session.Logout()
+        self.replace_processed_listing_ids(trigger['trigger_id'], processed_listing_ids)
         return callback(data)
 
-    def is_skip_rets_result(self, result, trigger, cipher):
-        return False
+    def is_skip_rets_result(self, result, trigger, cipher, processed_listing_ids):
+        return (result.GetString(self.RETS_LISTING_ID_FIELD) in processed_listing_ids)
 
     def process_listing(self, listing):
         """
