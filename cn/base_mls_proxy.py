@@ -246,7 +246,7 @@ class BaseMlsProxy(AsyncClientMixin, BaseProxy):
                 listing_data = {}
                 if rets_class in self.RETS_CLASSES_DEFAULT_VALUES:
                     listing_data = self.RETS_CLASSES_DEFAULT_VALUES.get(rets_class).copy()
-                if self.is_skip_rets_result(results, trigger, cipher, processed_listing_ids):
+                if (results.GetString(self.RETS_LISTING_ID_FIELD) in processed_listing_ids) or self.is_skip_rets_result(results, trigger, cipher):
                     continue
                 for column in columns:
                     listing_data.update({column:results.GetString(column)})
@@ -256,8 +256,8 @@ class BaseMlsProxy(AsyncClientMixin, BaseProxy):
         self.replace_processed_listing_ids(trigger['trigger_id'], processed_listing_ids)
         return callback(data)
 
-    def is_skip_rets_result(self, result, trigger, cipher, processed_listing_ids):
-        return (result.GetString(self.RETS_LISTING_ID_FIELD) in processed_listing_ids)
+    def is_skip_rets_result(self, result, trigger, cipher):
+        return False
 
     def process_listing(self, listing):
         """
